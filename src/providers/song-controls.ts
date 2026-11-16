@@ -36,6 +36,9 @@ const parseStringFromArgsType = (args: ArgsType<string>) => {
   }
 };
 
+// Thrown by innertubeRequest when the renderer doesn't answer in time
+export class InnertubeTimeoutError extends Error {}
+
 export const getSongControls = (win: BrowserWindow) => {
   return {
     // Playback
@@ -145,6 +148,69 @@ export const getSongControls = (win: BrowserWindow) => {
           resolve(result as string);
         });
         win.webContents.send('peard:search', query, params, continuation);
+      }),
+
+    addPlaylistToQueue: (playlistId: string, queueInsertPosition: string) => {
+      win.webContents.send(
+        'peard:add-playlist-to-queue',
+        playlistId,
+        queueInsertPosition,
+      );
+    },
+
+    // Calls YouTube Music's internal API (e.g. '/browse') through the page's
+    // own network manager, so the request is made as the signed-in user.
+    // Uses a per-request reply channel so concurrent calls don't race.
+    innertubeRequest: <T = unknown>(
+      endpoint: string,
+      body: Record<string, unknown>,
+      timeoutMs = 15_000,
+    ) =>
+      new Promise<T>((resolve, reject) => {
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const channel = `peard:innertube-response:${requestId}`;
+
+        const listener = (
+          _: unknown,
+          response: { result?: unknown; error?: string },
+        ) => {
+          clearTimeout(timeout);
+          if (response?.error) reject(new Error(response.error));
+          else resolve(response?.result as T);
+        };
+        const timeout = setTimeout(() => {
+          ipcMain.removeListener(channel, listener);
+          reject(new InnertubeTimeoutError(`Request to ${endpoint} timed out`));
+        }, timeoutMs);
+
+        ipcMain.once(channel, listener);
+        win.webContents.send(
+          'peard:innertube-request',
+          requestId,
+          endpoint,
+          body,
+        );
+      }),
+
+    // Plays a navigation endpoint (watchEndpoint / watchPlaylistEndpoint) the
+    // same way clicking it inside YouTube Music does. Resolves to whether the
+    // page could dispatch it.
+    playEndpoint: (endpoint: Record<string, unknown>, timeoutMs = 5_000) =>
+      new Promise<boolean>((resolve) => {
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const channel = `peard:play-endpoint-response:${requestId}`;
+
+        const listener = (_: unknown, dispatched: boolean) => {
+          clearTimeout(timeout);
+          resolve(dispatched);
+        };
+        const timeout = setTimeout(() => {
+          ipcMain.removeListener(channel, listener);
+          resolve(false);
+        }, timeoutMs);
+
+        ipcMain.once(channel, listener);
+        win.webContents.send('peard:play-endpoint', requestId, endpoint);
       }),
   };
 };

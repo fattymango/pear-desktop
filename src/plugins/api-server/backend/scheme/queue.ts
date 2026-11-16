@@ -4,13 +4,18 @@ export const QueueParamsSchema = z.object({
   index: z.coerce.number().int().nonnegative(),
 });
 
-export const AddSongToQueueSchema = z.object({
-  videoId: z.string(),
-  insertPosition: z
-    .enum(['INSERT_AT_END', 'INSERT_AFTER_CURRENT_VIDEO'])
-    .optional()
-    .default('INSERT_AT_END'),
-});
+export const AddSongToQueueSchema = z
+  .object({
+    videoId: z.string().optional(),
+    playlistId: z.string().optional(),
+    insertPosition: z
+      .enum(['INSERT_AT_END', 'INSERT_AFTER_CURRENT_VIDEO'])
+      .optional()
+      .default('INSERT_AT_END'),
+  })
+  .refine((data) => !!data.videoId !== !!data.playlistId, {
+    message: 'Exactly one of videoId or playlistId is required',
+  });
 export const MoveSongInQueueSchema = z.object({
   toIndex: z.number(),
 });

@@ -244,6 +244,113 @@ async function onApiLoaded() {
     },
   );
   window.ipcRenderer.on(
+    'peard:add-playlist-to-queue',
+    (_, playlistId: string, queueInsertPosition: string) => {
+      const queue = document.querySelector<QueueElement>('#queue');
+      const app = document.querySelector<MusicPlayerAppElement>('ytmusic-app');
+      if (!app) return;
+
+      const store = queue?.queue.store.store;
+      if (!store) return;
+
+      app.networkManager
+        .fetch('/music/get_queue', {
+          queueContextParams: store.getState().queue.queueContextParams,
+          queueInsertPosition,
+          playlistId,
+        })
+        .then((result) => {
+          if (
+            result &&
+            typeof result === 'object' &&
+            'queueDatas' in result &&
+            Array.isArray(result.queueDatas)
+          ) {
+            const queueItems = store.getState().queue.items;
+            const queueItemsLength = queueItems.length ?? 0;
+            queue?.dispatch({
+              type: 'ADD_ITEMS',
+              payload: {
+                nextQueueItemId: store.getState().queue.nextQueueItemId,
+                index:
+                  queueInsertPosition === 'INSERT_AFTER_CURRENT_VIDEO'
+                    ? queueItems.findIndex(
+                        (it) =>
+                          (
+                            it.playlistPanelVideoRenderer ||
+                            it.playlistPanelVideoWrapperRenderer
+                              ?.primaryRenderer.playlistPanelVideoRenderer
+                          )?.selected,
+                      ) + 1 || queueItemsLength
+                    : queueItemsLength,
+                items: result.queueDatas
+                  .map((it) =>
+                    typeof it === 'object' && it && 'content' in it
+                      ? it.content
+                      : null,
+                  )
+                  .filter(Boolean),
+                shuffleEnabled: false,
+                shouldAssignIds: true,
+              },
+            });
+          }
+        });
+    },
+  );
+
+  window.ipcRenderer.on(
+    'peard:innertube-request',
+    async (_, requestId: string, endpoint: string, body: unknown) => {
+      const responseChannel = `peard:innertube-response:${requestId}`;
+      const app = document.querySelector<MusicPlayerAppElement>('ytmusic-app');
+      if (!app) {
+        window.ipcRenderer.send(responseChannel, {
+          error: 'ytmusic-app is not available',
+        });
+        return;
+      }
+
+      try {
+        const result = await app.networkManager.fetch<unknown, unknown>(
+          endpoint,
+          body,
+        );
+        window.ipcRenderer.send(responseChannel, { result });
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : typeof error === 'string'
+              ? error
+              : String(error);
+        window.ipcRenderer.send(responseChannel, {
+          error: message || 'Unknown error',
+        });
+      }
+    },
+  );
+
+  window.ipcRenderer.on(
+    'peard:play-endpoint',
+    (_, requestId: string, endpoint: unknown) => {
+      // Same event YouTube Music fires when a song / playlist is clicked
+      const app = document.querySelector('ytmusic-app');
+      app?.dispatchEvent(
+        new CustomEvent('yt-navigate', {
+          bubbles: true,
+          composed: true,
+          detail: { endpoint },
+        }),
+      );
+      window.ipcRenderer.send(
+        `peard:play-endpoint-response:${requestId}`,
+        !!app,
+      );
+    },
+  );
+
+  window.ipcRenderer.on(
     'peard:move-in-queue',
     (_, fromIndex: number, toIndex: number) => {
       const queue = document.querySelector<QueueElement>('#queue');

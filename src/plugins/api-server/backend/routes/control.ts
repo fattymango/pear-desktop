@@ -453,11 +453,12 @@ const routes = {
   addSongToQueue: createRoute({
     method: 'post',
     path: `/api/${API_VERSION}/queue`,
-    summary: 'add song to queue',
-    description: 'Add a song to the queue',
+    summary: 'add song or playlist to queue',
+    description:
+      'Add a song or an entire playlist to the queue. Exactly one of videoId or playlistId is required.',
     request: {
       body: {
-        description: 'video id of the song to add',
+        description: 'video id of the song, or id of the playlist, to add',
         content: {
           'application/json': {
             schema: AddSongToQueueSchema,
@@ -826,8 +827,12 @@ export const register = (
   });
 
   app.openapi(routes.addSongToQueue, (ctx) => {
-    const { videoId, insertPosition } = ctx.req.valid('json');
-    controller.addSongToQueue(videoId, insertPosition);
+    const { videoId, playlistId, insertPosition } = ctx.req.valid('json');
+    if (videoId) {
+      controller.addSongToQueue(videoId, insertPosition);
+    } else {
+      controller.addPlaylistToQueue(playlistId!, insertPosition);
+    }
 
     ctx.status(204);
     return ctx.body(null);
